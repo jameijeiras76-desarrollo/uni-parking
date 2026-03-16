@@ -317,6 +317,33 @@ export default function CobrarPage() {
     setRegistroExitoso(false);
   }
 
+  async function copiarTextoSeguro(texto: string) {
+    if (navigator.clipboard && window.isSecureContext) {
+      await navigator.clipboard.writeText(texto);
+      return true;
+    }
+
+    const textArea = document.createElement("textarea");
+    textArea.value = texto;
+    textArea.style.position = "fixed";
+    textArea.style.left = "-999999px";
+    textArea.style.top = "-999999px";
+    document.body.appendChild(textArea);
+    textArea.focus();
+    textArea.select();
+
+    let copiado = false;
+
+    try {
+      copiado = document.execCommand("copy");
+    } catch {
+      copiado = false;
+    }
+
+    document.body.removeChild(textArea);
+    return copiado;
+  }
+
   async function copiarResumenFinal() {
     const texto = `RESUMEN DE MIS COBRANZAS
 
@@ -330,14 +357,16 @@ Pases libres: ${totalPaseLibrePropio}
 
 TOTAL DE MIS COBRANZAS: $${recaudacionPropia}`;
 
-    try {
-      await navigator.clipboard.writeText(texto);
+    const ok = await copiarTextoSeguro(texto);
+
+    if (ok) {
       setMensajeCopiado("Resumen copiado para WhatsApp.");
       setTimeout(() => setMensajeCopiado(""), 2500);
-    } catch {
-      setMensajeCopiado("No se pudo copiar el resumen.");
-      setTimeout(() => setMensajeCopiado(""), 2500);
+      return;
     }
+
+    setMensajeCopiado("No se pudo copiar el resumen.");
+    setTimeout(() => setMensajeCopiado(""), 2500);
   }
 
   return (
