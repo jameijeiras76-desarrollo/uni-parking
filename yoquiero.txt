@@ -1,0 +1,35 @@
+home:
+al presionar ingresar a cobrar poner un pagina siguiente donde se pongan los datos del cobrador
+dni
+nombre y apellido
+luego dejar entrar a la de cobrar 
+
+
+cobrar:
+- poner volver a la pagina principal en alguna parte por si quiero volver a la home
+- que apareza el nombre que cargo por defecto en la pagina de nombre y que no lo pueda modificar
+- el siguiente campo debería ser seleccionar el evento
+- luego de seleccionar el evento que aparezca el precio del evento (el valor)
+- los cuadros con los datos estadisticos que vayan debajo
+- en pase libre agregar además como campo obligatorio el numero de ticket y el otro campo referido a quien ingreso también obligatorio
+- tanto en efectivo como transferencia el numero de ticket tiene que ser obligatorio
+- tiene que tener un campo que diga algo asi como "iniciar cobranza" (el momento la hora donde empieza a cobrar) que sea un botón verde, y se cambia a uno de color azul que dice "finalizar cobranza" que cuando se presiona detiene la posibilidad de seguir cobrando
+- una vez que pone finalizar cobranza podría volver a iniciar o que aparezca (solo si tiene al menos 1 cobranza) un botón que diga, cerrar cobranza, que eso no permite que ese usuario siga cobrando, bloqueando todas los opciones, y dando solo la opción de "volver a pagina principal" y de ahí volver a home
+
+en admin:
+- que haya un botón que diga "nuevo evento" (azul) y que al presionarlo recién aparezcan las opciones para poner los datos del evento
+- 
+
+
+en auditoria:
+- debería mostrar un resumen de los datos del evento, no hace falta aca mostrar el detalle de cada operacion
+- debería mostrar todos los eventos y dejar seleccionar (checkbox) los que se quiera ver de acuerdo a un rango de fechas que se quiera seleccionar para filtrar
+- el botón para generar reporte debería esta abajo
+- el reporte debería descargar y poder ver: en una primer hoja todos los datos de cada evento seleccionado en una sola linea en una primer hoja
+- luego una hoja por cada evento con el detalle, operación por operación de ese evento
+
+quiero actualizar todo esto
+quiero publicarlo y que se vea
+quiero que los usuarios puedan empezar a usarlo en simultaneo
+quiero crear una webapp
+quiero que los datos se vayan guardando en una base de datos accesible

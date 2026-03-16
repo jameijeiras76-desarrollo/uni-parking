@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
+import * as XLSX from "xlsx";
 import { Evento, eventosIniciales } from "../../data/eventos";
 
 const STORAGE_KEY_EVENTOS = "uni-parking-eventos";
@@ -9,6 +10,7 @@ const STORAGE_KEY_COBRANZAS = "uni-parking-cobranzas";
 
 type Cobranza = {
   cobrador: string;
+  dniCobrador: string;
   evento: string;
   tipoRegistro: string;
   medioPago: string;
@@ -28,14 +30,20 @@ function formatearFecha(fechaISO: string) {
   return `${dia}/${mes}/${anio}`;
 }
 
+function nombreHojaSeguro(nombre: string) {
+  return nombre.replace(/[\\/*?:[\]]/g, "").slice(0, 31);
+}
+
 export default function AuditoriaPage() {
   const [eventos, setEventos] = useState<Evento[]>([]);
-  const [cobranzasPorEvento, setCobranzasPorEvento] = useState<CobranzasPorEvento>(
-    {}
-  );
-  const [eventoSeleccionado, setEventoSeleccionado] = useState("");
-  const [mensajeCopiado, setMensajeCopiado] = useState("");
-  const [mensajeAccion, setMensajeAccion] = useState("");
+  const [cobranzasPorEvento, setCobranzasPorEvento] =
+    useState<CobranzasPorEvento>({});
+
+  const [fechaDesde, setFechaDesde] = useState("");
+  const [fechaHasta, setFechaHasta] = useState("");
+  const [estamentoFiltro, setEstamentoFiltro] = useState("Todos");
+  const [eventosSeleccionados, setEventosSeleccionados] = useState<string[]>([]);
+  const [mensaje, setMensaje] = useState("");
 
   useEffect(() => {
     const guardadosEventos = localStorage.getItem(STORAGE_KEY_EVENTOS);
@@ -50,9 +58,16 @@ export default function AuditoriaPage() {
       }));
 
       setEventos(eventosNormalizados);
+      localStorage.setItem(
+        STORAGE_KEY_EVENTOS,
+        JSON.stringify(eventosNormalizados)
+      );
     } else {
       setEventos(eventosIniciales);
-      localStorage.setItem(STORAGE_KEY_EVENTOS, JSON.stringify(eventosIniciales));
+      localStorage.setItem(
+        STORAGE_KEY_EVENTOS,
+        JSON.stringify(eventosIniciales)
+      );
     }
 
     if (guardadasCobranzas) {
@@ -62,397 +77,315 @@ export default function AuditoriaPage() {
     }
   }, []);
 
-  const eventoActual = eventos.find(
-    (evento) => evento.nombre === eventoSeleccionado
-  );
+  const eventosFiltrados = useMemo(() => {
+    return eventos.filter((evento) => {
+      const cumpleDesde = fechaDesde ? evento.fecha >= fechaDesde : true;
+      const cumpleHasta = fechaHasta ? evento.fecha <= fechaHasta : true;
+      const cumpleEstamento =
+        estamentoFiltro === "Todos"
+          ? true
+          : evento.estamento === estamentoFiltro;
 
-  const cobranzas = eventoSeleccionado
-    ? cobranzasPorEvento[eventoSeleccionado] ?? []
-    : [];
+      return cumpleDesde && cumpleHasta && cumpleEstamento;
+    });
+  }, [eventos, fechaDesde, fechaHasta, estamentoFiltro]);
 
-  const resumen = useMemo(() => {
-    const totalRegistros = cobranzas.length;
+  function toggleEvento(nombreEvento: string) {
+    setEventosSeleccionados((prev) =>
+      prev.includes(nombreEvento)
+        ? prev.filter((nombre) => nombre !== nombreEvento)
+        : [...prev, nombreEvento]
+    );
+  }
 
-    const totalEfectivo = cobranzas.filter(
+  function seleccionarTodosFiltrados() {
+    setEventosSeleccionados(eventosFiltrados.map((evento) => evento.nombre));
+  }
+
+  function limpiarSeleccion() {
+    setEventosSeleccionados([]);
+  }
+
+  function obtenerResumenEvento(evento: Evento) {
+    const cobranzasEvento = cobranzasPorEvento[evento.nombre] ?? [];
+
+    const totalOperaciones = cobranzasEvento.length;
+
+    const cantidadEfectivo = cobranzasEvento.filter(
       (cobranza) => cobranza.medioPago === "Efectivo"
     ).length;
 
-    const totalTransferencia = cobranzas.filter(
+    const cantidadTransferencia = cobranzasEvento.filter(
       (cobranza) => cobranza.medioPago === "Transferencia"
     ).length;
 
-    const totalPaseLibre = cobranzas.filter(
+    const cantidadPaseLibre = cobranzasEvento.filter(
       (cobranza) => cobranza.tipoRegistro === "Pase libre"
     ).length;
 
-    const recaudado = cobranzas.reduce(
+    const recaudadoEfectivo = cobranzasEvento
+      .filter((cobranza) => cobranza.medioPago === "Efectivo")
+      .reduce((acc, cobranza) => acc + (Number(cobranza.monto) || 0), 0);
+
+    const recaudadoTransferencia = cobranzasEvento
+      .filter((cobranza) => cobranza.medioPago === "Transferencia")
+      .reduce((acc, cobranza) => acc + (Number(cobranza.monto) || 0), 0);
+
+    const totalRecaudado = cobranzasEvento.reduce(
       (acc, cobranza) => acc + (Number(cobranza.monto) || 0),
       0
     );
 
     return {
-      totalRegistros,
-      totalEfectivo,
-      totalTransferencia,
-      totalPaseLibre,
-      recaudado,
+      totalOperaciones,
+      cantidadEfectivo,
+      cantidadTransferencia,
+      cantidadPaseLibre,
+      recaudadoEfectivo,
+      recaudadoTransferencia,
+      totalRecaudado,
+      cobranzasEvento,
     };
-  }, [cobranzas]);
+  }
 
-  async function copiarCierre() {
-    if (!eventoSeleccionado) return;
+  function generarReporteExcel() {
+    setMensaje("");
 
-    const texto = `ACTA DE CIERRE
+    const eventosElegidos = eventos.filter((evento) =>
+      eventosSeleccionados.includes(evento.nombre)
+    );
 
-Evento: ${eventoSeleccionado}
-Estado: ${eventoActual?.estado ?? "-"}
-
-Total de registros: ${resumen.totalRegistros}
-Cobranzas en efectivo: ${resumen.totalEfectivo}
-Cobranzas por transferencia: ${resumen.totalTransferencia}
-Pases libres: ${resumen.totalPaseLibre}
-
-TOTAL RECAUDADO: $${resumen.recaudado}`;
-
-    try {
-      await navigator.clipboard.writeText(texto);
-      setMensajeCopiado("Cierre copiado al portapapeles.");
-      setTimeout(() => setMensajeCopiado(""), 2500);
-    } catch {
-      setMensajeCopiado("No se pudo copiar el cierre.");
-      setTimeout(() => setMensajeCopiado(""), 2500);
+    if (eventosElegidos.length === 0) {
+      setMensaje("Seleccioná al menos un evento para generar el reporte.");
+      return;
     }
-  }
 
-  function cerrarEventoDesdeAuditoria() {
-    if (!eventoSeleccionado) return;
+    const workbook = XLSX.utils.book_new();
 
-    const confirmacion = window.confirm(
-      `¿Seguro que querés cerrar el evento "${eventoSeleccionado}"?`
-    );
+    const hojaResumen = eventosElegidos.map((evento) => {
+      const resumen = obtenerResumenEvento(evento);
 
-    if (!confirmacion) return;
+      return {
+        Fecha: formatearFecha(evento.fecha),
+        Rival: evento.rival,
+        Evento: evento.nombre,
+        Estamento: evento.estamento,
+        Lugar: evento.lugar,
+        Estado: evento.estado,
+        Operaciones: resumen.totalOperaciones,
+        Efectivo_Cantidad: resumen.cantidadEfectivo,
+        Efectivo_Monto: resumen.recaudadoEfectivo,
+        Transferencia_Cantidad: resumen.cantidadTransferencia,
+        Transferencia_Monto: resumen.recaudadoTransferencia,
+        Pases_Libres: resumen.cantidadPaseLibre,
+        Total_Recaudado: resumen.totalRecaudado,
+      };
+    });
 
-    const actualizados = eventos.map((evento) =>
-      evento.nombre === eventoSeleccionado
-        ? { ...evento, estado: "cerrado" as const }
-        : evento
-    );
+    const wsResumen = XLSX.utils.json_to_sheet(hojaResumen);
+    XLSX.utils.book_append_sheet(workbook, wsResumen, "Resumen");
 
-    setEventos(actualizados);
-    localStorage.setItem(STORAGE_KEY_EVENTOS, JSON.stringify(actualizados));
-    setMensajeAccion(`El evento "${eventoSeleccionado}" fue cerrado.`);
-    setTimeout(() => setMensajeAccion(""), 2500);
-  }
+    eventosElegidos.forEach((evento) => {
+      const resumen = obtenerResumenEvento(evento);
 
-  function descargarHistorial() {
-    const encabezados = [
-      "Fecha",
-      "Rival",
-      "Evento",
-      "Estado",
-      "Recaudado Efectivo",
-      "Recaudado Transferencia",
-      "Pases Libres",
-      "Total Recaudado",
-    ];
+      const detalle =
+        resumen.cobranzasEvento.length > 0
+          ? resumen.cobranzasEvento.map((cobranza, index) => ({
+              Nro: index + 1,
+              Fecha_Hora: cobranza.fechaHora,
+              Cobrador: cobranza.cobrador,
+              DNI_Cobrador: cobranza.dniCobrador,
+              Tipo_Registro: cobranza.tipoRegistro,
+              Medio_Pago: cobranza.medioPago,
+              Ticket: cobranza.ticket,
+              Patente: cobranza.patente,
+              Beneficiario_Pase_Libre: cobranza.beneficiarioPaseLibre,
+              Comprobante: cobranza.comprobante,
+              Monto: cobranza.monto,
+            }))
+          : [
+              {
+                Nro: "",
+                Fecha_Hora: "",
+                Cobrador: "",
+                DNI_Cobrador: "",
+                Tipo_Registro: "",
+                Medio_Pago: "",
+                Ticket: "",
+                Patente: "",
+                Beneficiario_Pase_Libre: "",
+                Comprobante: "",
+                Monto: 0,
+              },
+            ];
 
-    const filas = eventos.map((evento) => {
-      const cobranzasEvento = cobranzasPorEvento[evento.nombre] ?? [];
-
-      const recaudadoEfectivo = cobranzasEvento
-        .filter((cobranza) => cobranza.medioPago === "Efectivo")
-        .reduce((acc, cobranza) => acc + (Number(cobranza.monto) || 0), 0);
-
-      const recaudadoTransferencia = cobranzasEvento
-        .filter((cobranza) => cobranza.medioPago === "Transferencia")
-        .reduce((acc, cobranza) => acc + (Number(cobranza.monto) || 0), 0);
-
-      const pasesLibres = cobranzasEvento.filter(
-        (cobranza) => cobranza.tipoRegistro === "Pase libre"
-      ).length;
-
-      const totalRecaudado = cobranzasEvento.reduce(
-        (acc, cobranza) => acc + (Number(cobranza.monto) || 0),
-        0
+      const wsDetalle = XLSX.utils.json_to_sheet(detalle);
+      XLSX.utils.book_append_sheet(
+        workbook,
+        wsDetalle,
+        nombreHojaSeguro(evento.rival || evento.nombre)
       );
-
-      return [
-        formatearFecha(evento.fecha),
-        evento.rival,
-        evento.nombre,
-        evento.estado,
-        recaudadoEfectivo,
-        recaudadoTransferencia,
-        pasesLibres,
-        totalRecaudado,
-      ];
     });
 
-    const contenido = [
-      encabezados.join(","),
-      ...filas.map((fila) => fila.map((valor) => `"${valor}"`).join(",")),
-    ].join("\n");
-
-    const blob = new Blob([contenido], {
-      type: "text/csv;charset=utf-8;",
-    });
-
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement("a");
-    link.href = url;
-    link.setAttribute("download", "historial_eventos_uni_parking.csv");
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
+    XLSX.writeFile(workbook, "reporte_auditoria_uni_parking.xlsx");
+    setMensaje("Reporte generado correctamente.");
   }
 
   return (
-    <main className="min-h-screen bg-neutral-100 px-4 py-5 text-neutral-900">
+    <main className="min-h-screen bg-neutral-100 px-4 py-6">
       <div className="mx-auto max-w-md space-y-4">
         <div className="rounded-3xl border border-red-200 bg-white p-6 shadow-sm">
-          <div className="mb-2 text-xs font-semibold uppercase tracking-[0.25em] text-red-700">
-            Club Universitario de Córdoba
-          </div>
-          <h1 className="text-3xl font-bold text-red-700">Auditoría</h1>
+          <h1 className="text-2xl font-bold text-red-700">Auditoría</h1>
           <p className="mt-2 text-sm text-neutral-600">
-            Revisá la recaudación y el detalle de cada evento.
+            Seleccioná eventos por filtros y generá un reporte completo.
           </p>
         </div>
 
         <div className="rounded-3xl bg-white p-5 shadow-sm">
-          <button
-            type="button"
-            onClick={descargarHistorial}
-            className="w-full rounded-2xl bg-red-700 px-4 py-4 text-base font-semibold text-white shadow-sm"
-          >
-            Descargar historial de todos los eventos
-          </button>
+          <div className="grid grid-cols-1 gap-3">
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="mb-2 block text-sm font-medium">
+                  Fecha desde
+                </label>
+                <input
+                  type="date"
+                  value={fechaDesde}
+                  onChange={(e) => setFechaDesde(e.target.value)}
+                  className="w-full rounded-2xl border border-neutral-300 px-4 py-3 outline-none"
+                />
+              </div>
+
+              <div>
+                <label className="mb-2 block text-sm font-medium">
+                  Fecha hasta
+                </label>
+                <input
+                  type="date"
+                  value={fechaHasta}
+                  onChange={(e) => setFechaHasta(e.target.value)}
+                  className="w-full rounded-2xl border border-neutral-300 px-4 py-3 outline-none"
+                />
+              </div>
+            </div>
+
+            <div>
+              <label className="mb-2 block text-sm font-medium">
+                Estamento
+              </label>
+              <select
+                value={estamentoFiltro}
+                onChange={(e) => setEstamentoFiltro(e.target.value)}
+                className="w-full rounded-2xl border border-neutral-300 px-4 py-3 outline-none"
+              >
+                <option value="Todos">Todos</option>
+                <option value="Infantiles">Infantiles</option>
+                <option value="Juveniles">Juveniles</option>
+                <option value="PS Masculino">PS Masculino</option>
+                <option value="PS Femenino">PS Femenino</option>
+              </select>
+            </div>
+          </div>
         </div>
 
         <div className="rounded-3xl bg-white p-5 shadow-sm">
-          <label className="mb-2 block text-sm font-medium">Evento</label>
-          <select
-            value={eventoSeleccionado}
-            onChange={(e) => {
-              setEventoSeleccionado(e.target.value);
-              setMensajeCopiado("");
-              setMensajeAccion("");
-            }}
-            className="w-full rounded-2xl border border-neutral-300 px-4 py-3 outline-none"
-          >
-            <option value="">Seleccionar evento</option>
-            {eventos.map((evento) => (
-              <option key={evento.nombre} value={evento.nombre}>
-                {evento.nombre}
-              </option>
-            ))}
-          </select>
-        </div>
+          <div className="mb-4 flex flex-wrap gap-2">
+            <button
+              type="button"
+              onClick={seleccionarTodosFiltrados}
+              className="rounded-2xl border border-red-200 px-4 py-2 text-sm font-semibold text-red-700"
+            >
+              Seleccionar todos
+            </button>
 
-        {eventoSeleccionado && (
-          <>
-            <div className="grid grid-cols-2 gap-2">
-              <div className="rounded-2xl bg-white p-3 shadow-sm">
-                <div className="text-[11px] uppercase tracking-wide text-neutral-500">
-                  Estado
-                </div>
-                <div className="mt-1 text-base font-bold text-red-700">
-                  {eventoActual?.estado ?? "-"}
-                </div>
-              </div>
+            <button
+              type="button"
+              onClick={limpiarSeleccion}
+              className="rounded-2xl border border-neutral-300 px-4 py-2 text-sm font-semibold text-neutral-700"
+            >
+              Limpiar selección
+            </button>
+          </div>
 
-              <div className="rounded-2xl bg-white p-3 shadow-sm">
-                <div className="text-[11px] uppercase tracking-wide text-neutral-500">
-                  Recaudado
-                </div>
-                <div className="mt-1 text-base font-bold text-red-700">
-                  ${resumen.recaudado}
-                </div>
-              </div>
+          <h2 className="mb-4 text-lg font-semibold text-red-700">
+            Eventos
+          </h2>
 
-              <div className="rounded-2xl bg-white p-3 shadow-sm">
-                <div className="text-[11px] uppercase tracking-wide text-neutral-500">
-                  Registros
-                </div>
-                <div className="mt-1 text-base font-bold text-neutral-800">
-                  {resumen.totalRegistros}
-                </div>
-              </div>
+          {eventosFiltrados.length === 0 ? (
+            <p className="text-sm text-neutral-500">
+              No hay eventos con esos filtros.
+            </p>
+          ) : (
+            <div className="space-y-3">
+              {eventosFiltrados.map((evento) => {
+                const resumen = obtenerResumenEvento(evento);
+                const marcado = eventosSeleccionados.includes(evento.nombre);
 
-              <div className="rounded-2xl bg-white p-3 shadow-sm">
-                <div className="text-[11px] uppercase tracking-wide text-neutral-500">
-                  Pase libre
-                </div>
-                <div className="mt-1 text-base font-bold text-neutral-800">
-                  {resumen.totalPaseLibre}
-                </div>
-              </div>
-
-              <div className="rounded-2xl bg-white p-3 shadow-sm">
-                <div className="text-[11px] uppercase tracking-wide text-neutral-500">
-                  Efectivo
-                </div>
-                <div className="mt-1 text-base font-bold text-neutral-800">
-                  {resumen.totalEfectivo}
-                </div>
-              </div>
-
-              <div className="rounded-2xl bg-white p-3 shadow-sm">
-                <div className="text-[11px] uppercase tracking-wide text-neutral-500">
-                  Transferencia
-                </div>
-                <div className="mt-1 text-base font-bold text-neutral-800">
-                  {resumen.totalTransferencia}
-                </div>
-              </div>
-            </div>
-
-            <div className="rounded-3xl border border-red-200 bg-red-50 p-5 shadow-sm">
-              <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
-                <h2 className="text-lg font-semibold text-red-700">
-                  Cierre de caja del evento
-                </h2>
-
-                <div className="flex gap-2">
-                  <button
-                    type="button"
-                    onClick={copiarCierre}
-                    className="rounded-xl bg-red-700 px-3 py-2 text-sm font-semibold text-white"
+                return (
+                  <label
+                    key={evento.nombre}
+                    className="block rounded-2xl border border-neutral-200 p-4"
                   >
-                    Copiar cierre
-                  </button>
+                    <div className="flex items-start gap-3">
+                      <input
+                        type="checkbox"
+                        checked={marcado}
+                        onChange={() => toggleEvento(evento.nombre)}
+                        className="mt-1 h-4 w-4"
+                      />
 
-                  <button
-                    type="button"
-                    onClick={cerrarEventoDesdeAuditoria}
-                    disabled={eventoActual?.estado === "cerrado"}
-                    className={`rounded-xl px-3 py-2 text-sm font-semibold ${
-                      eventoActual?.estado === "cerrado"
-                        ? "cursor-not-allowed border border-neutral-300 bg-white text-neutral-400"
-                        : "border border-red-200 bg-white text-red-700"
-                    }`}
-                  >
-                    Cerrar evento
-                  </button>
-                </div>
-              </div>
-
-              <div className="space-y-2 text-sm">
-                <div>
-                  <strong>Evento:</strong> {eventoSeleccionado}
-                </div>
-                <div>
-                  <strong>Estado:</strong> {eventoActual?.estado ?? "-"}
-                </div>
-                <div>
-                  <strong>Total de registros:</strong> {resumen.totalRegistros}
-                </div>
-                <div>
-                  <strong>Cobranzas en efectivo:</strong> {resumen.totalEfectivo}
-                </div>
-                <div>
-                  <strong>Cobranzas por transferencia:</strong> {resumen.totalTransferencia}
-                </div>
-                <div>
-                  <strong>Pases libres:</strong> {resumen.totalPaseLibre}
-                </div>
-                <div className="pt-2 text-base font-bold text-red-700">
-                  <strong>Total recaudado:</strong> ${resumen.recaudado}
-                </div>
-              </div>
-
-              {mensajeCopiado && (
-                <div className="mt-4 rounded-2xl border border-green-200 bg-green-50 p-3 text-sm text-green-800">
-                  {mensajeCopiado}
-                </div>
-              )}
-
-              {mensajeAccion && (
-                <div className="mt-4 rounded-2xl border border-blue-200 bg-blue-50 p-3 text-sm text-blue-800">
-                  {mensajeAccion}
-                </div>
-              )}
-            </div>
-
-            <div className="rounded-3xl bg-white p-5 shadow-sm">
-              <h2 className="mb-4 text-lg font-semibold text-red-700">
-                Registros del evento
-              </h2>
-
-              {cobranzas.length === 0 ? (
-                <p className="text-sm text-neutral-500">
-                  No hay registros para este evento.
-                </p>
-              ) : (
-                <div className="space-y-3">
-                  {cobranzas.map((cobranza, index) => (
-                    <div
-                      key={`${cobranza.ticket}-${index}-${cobranza.tipoRegistro}`}
-                      className="rounded-2xl border border-neutral-200 p-4"
-                    >
-                      <div className="text-sm">
-                        <strong>Tipo:</strong> {cobranza.tipoRegistro}
-                      </div>
-
-                      <div className="text-sm">
-                        <strong>Cobrador:</strong> {cobranza.cobrador}
-                      </div>
-
-                      <div className="text-sm">
-                        <strong>Fecha y hora:</strong> {cobranza.fechaHora}
-                      </div>
-
-                      <div className="text-sm">
-                        <strong>Medio de pago:</strong> {cobranza.medioPago}
-                      </div>
-
-                      <div className="text-sm">
-                        <strong>Ticket:</strong> {cobranza.ticket}
-                      </div>
-
-                      {cobranza.tipoRegistro === "Pase libre" && (
-                        <div className="text-sm">
-                          <strong>Autorizado:</strong>{" "}
-                          {cobranza.beneficiarioPaseLibre}
+                      <div className="flex-1">
+                        <div className="text-sm font-semibold text-neutral-900">
+                          {evento.nombre}
                         </div>
-                      )}
 
-                      <div className="text-sm">
-                        <strong>Patente:</strong> {cobranza.patente}
-                      </div>
+                        <div className="mt-2 text-sm text-neutral-600">
+                          <strong>Fecha:</strong> {formatearFecha(evento.fecha)}
+                        </div>
 
-                      <div className="text-sm">
-                        <strong>Comprobante:</strong> {cobranza.comprobante}
-                      </div>
+                        <div className="text-sm text-neutral-600">
+                          <strong>Estamento:</strong> {evento.estamento}
+                        </div>
 
-                      <div className="text-sm">
-                        <strong>Monto:</strong> ${cobranza.monto}
+                        <div className="text-sm text-neutral-600">
+                          <strong>Total recaudado:</strong>{" "}
+                          <span className="font-semibold text-red-700">
+                            ${resumen.totalRecaudado}
+                          </span>
+                        </div>
                       </div>
                     </div>
-                  ))}
-                </div>
-              )}
+                  </label>
+                );
+              })}
             </div>
-          </>
+          )}
+        </div>
+
+        {mensaje && (
+          <div className="rounded-3xl border border-green-200 bg-green-50 p-4 text-sm text-green-800 shadow-sm">
+            {mensaje}
+          </div>
         )}
 
         <div className="rounded-3xl bg-white p-5 shadow-sm">
-          <div className="flex items-center justify-between">
-            <Link
-              href="/admin"
-              className="text-sm font-medium text-red-700 underline"
-            >
-              Volver a admin
-            </Link>
+          <button
+            type="button"
+            onClick={generarReporteExcel}
+            className="w-full rounded-2xl bg-red-700 px-4 py-4 text-base font-semibold text-white shadow-sm"
+          >
+            Generar reporte
+          </button>
+        </div>
 
-            <Link
-              href="/"
-              className="text-sm font-medium text-red-700 underline"
-            >
-              Ir al inicio
-            </Link>
-          </div>
+        <div className="rounded-3xl bg-white p-5 shadow-sm flex justify-between">
+          <Link href="/admin" className="text-red-700 underline">
+            Volver a admin
+          </Link>
+
+          <Link href="/" className="text-red-700 underline">
+            Inicio
+          </Link>
         </div>
       </div>
     </main>

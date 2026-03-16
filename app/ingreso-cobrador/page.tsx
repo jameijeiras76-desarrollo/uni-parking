@@ -3,75 +3,85 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 
-export default function LoginPage() {
+const STORAGE_COBRADOR = "uni-parking-cobrador";
+
+export default function IngresoCobradorPage() {
   const router = useRouter();
 
-  const [usuario, setUsuario] = useState("");
-  const [password, setPassword] = useState("");
+  const [dni, setDni] = useState("");
+  const [nombreApellido, setNombreApellido] = useState("");
   const [mensajeError, setMensajeError] = useState("");
 
-  function ingresar() {
+  function continuar() {
     setMensajeError("");
 
-    if (usuario === "scr2026" && password === "unidemivida") {
-      localStorage.setItem(
-        "uni-parking-sesion",
-        JSON.stringify({
-          rol: "admin",
-        })
-      );
-
-      router.push("/admin");
+    if (!dni.trim()) {
+      setMensajeError("Tenés que ingresar el DNI.");
       return;
     }
 
-    setMensajeError("Usuario o contraseña incorrectos.");
+    if (!nombreApellido.trim()) {
+      setMensajeError("Tenés que ingresar nombre y apellido.");
+      return;
+    }
+
+    localStorage.setItem(
+      STORAGE_COBRADOR,
+      JSON.stringify({
+        dni: dni.trim(),
+        nombreApellido: nombreApellido.trim(),
+      })
+    );
+
+    router.push("/cobrar");
   }
 
   return (
     <main className="min-h-screen bg-neutral-100 px-6 py-6 text-neutral-900">
       <div className="mx-auto max-w-md space-y-4">
         <div className="rounded-3xl border border-red-200 bg-white p-6 shadow-sm">
-          <h1 className="text-3xl font-bold text-red-700">Ingreso Administrador</h1>
+          <h1 className="text-3xl font-bold text-red-700">Ingreso del cobrador</h1>
           <p className="mt-2 text-sm text-neutral-600">
-            Acceso a administración y auditoría
+            Completá tus datos antes de comenzar a cobrar
           </p>
         </div>
 
         <div className="rounded-3xl bg-white p-5 shadow-sm">
-          <label className="mb-2 block text-sm font-medium">Usuario</label>
+          <label className="mb-2 block text-sm font-medium">DNI</label>
           <input
             type="text"
-            value={usuario}
+            value={dni}
             onChange={(e) => {
-              setUsuario(e.target.value);
+              setDni(e.target.value);
               setMensajeError("");
             }}
-            placeholder="Usuario"
+            placeholder="Ej: 27123456"
             className="w-full rounded-2xl border border-neutral-300 px-4 py-3 outline-none"
           />
         </div>
 
         <div className="rounded-3xl bg-white p-5 shadow-sm">
-          <label className="mb-2 block text-sm font-medium">Contraseña</label>
+          <label className="mb-2 block text-sm font-medium">
+            Nombre y apellido
+          </label>
           <input
-            type="password"
-            value={password}
+            type="text"
+            value={nombreApellido}
             onChange={(e) => {
-              setPassword(e.target.value);
+              setNombreApellido(e.target.value);
               setMensajeError("");
             }}
-            placeholder="Contraseña"
+            placeholder="Ej: Juan Gomez"
             className="w-full rounded-2xl border border-neutral-300 px-4 py-3 outline-none"
           />
         </div>
 
         <button
           type="button"
-          onClick={ingresar}
+          onClick={continuar}
           className="w-full rounded-2xl bg-red-700 px-4 py-4 text-base font-semibold text-white shadow-sm"
         >
-          Ingresar
+          Continuar a Cobrar
         </button>
 
         {mensajeError && (

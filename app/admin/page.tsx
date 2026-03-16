@@ -1,18 +1,27 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
 import { Evento, Estamento, eventosIniciales } from "../data/eventos";
+import Link from "next/link";
 
 const STORAGE = "uni-parking-eventos";
+const STORAGE_SESION = "uni-parking-sesion";
 
 function formatearFecha(fecha: string) {
   if (!fecha) return "";
-
   const [anio, mes, dia] = fecha.split("-");
   return `${dia}/${mes}/${anio}`;
 }
 
 export default function AdminPage() {
+  const router = useRouter();
+
+  const [autorizado, setAutorizado] = useState(false);
+  const [cargando, setCargando] = useState(true);
+
+  const [mostrarFormulario, setMostrarFormulario] = useState(false);
+
   const [fecha, setFecha] = useState("");
   const [rival, setRival] = useState("");
   const [lugar, setLugar] = useState("");
@@ -23,6 +32,22 @@ export default function AdminPage() {
   const [mensaje, setMensaje] = useState("");
 
   useEffect(() => {
+    const sesion = localStorage.getItem(STORAGE_SESION);
+
+    if (!sesion) {
+      router.push("/login");
+      return;
+    }
+
+    const sesionParseada = JSON.parse(sesion);
+
+    if (sesionParseada.rol !== "admin") {
+      router.push("/login");
+      return;
+    }
+
+    setAutorizado(true);
+
     const data = localStorage.getItem(STORAGE);
 
     if (data) {
@@ -39,11 +64,26 @@ export default function AdminPage() {
       setEventos(eventosIniciales);
       localStorage.setItem(STORAGE, JSON.stringify(eventosIniciales));
     }
-  }, []);
+
+    setCargando(false);
+  }, [router]);
+
+  function cerrarSesion() {
+    localStorage.removeItem(STORAGE_SESION);
+    router.push("/login");
+  }
 
   function guardarEventos(lista: Evento[]) {
     setEventos(lista);
     localStorage.setItem(STORAGE, JSON.stringify(lista));
+  }
+
+  function limpiarFormulario() {
+    setFecha("");
+    setRival("");
+    setLugar("");
+    setEstamento("PS Masculino");
+    setPrecio("");
   }
 
   function crearEvento() {
@@ -102,11 +142,8 @@ export default function AdminPage() {
     const nuevosEventos = [nuevoEvento, ...eventos];
     guardarEventos(nuevosEventos);
 
-    setFecha("");
-    setRival("");
-    setLugar("");
-    setEstamento("PS Masculino");
-    setPrecio("");
+    limpiarFormulario();
+    setMostrarFormulario(false);
     setMensaje("Evento creado correctamente.");
   }
 
@@ -133,6 +170,18 @@ export default function AdminPage() {
     setMensaje(`El evento "${nombreEvento}" fue eliminado.`);
   }
 
+  if (cargando) {
+    return (
+      <main className="min-h-screen flex items-center justify-center bg-neutral-100">
+        <p className="text-neutral-600">Cargando...</p>
+      </main>
+    );
+  }
+
+  if (!autorizado) {
+    return null;
+  }
+
   return (
     <main className="min-h-screen bg-neutral-100 px-6 py-6">
       <div className="mx-auto max-w-md space-y-4">
@@ -144,86 +193,129 @@ export default function AdminPage() {
         </div>
 
         <div className="rounded-3xl bg-white p-5 shadow-sm">
-          <label className="mb-2 block text-sm font-medium">Fecha</label>
-          <input
-            type="date"
-            value={fecha}
-            onChange={(e) => {
-              setFecha(e.target.value);
-              setMensaje("");
-            }}
-            className="w-full rounded-2xl border border-neutral-300 px-4 py-3 outline-none"
-          />
+          <div className="flex flex-wrap gap-3">
+            <Link
+              href="/admin/auditoria"
+              className="rounded-2xl bg-red-700 px-4 py-3 text-sm font-semibold text-white"
+            >
+              Ir a Auditoría
+            </Link>
+
+            <Link
+              href="/"
+              className="rounded-2xl border border-red-200 px-4 py-3 text-sm font-semibold text-red-700"
+            >
+              Volver al inicio
+            </Link>
+
+            <button
+              type="button"
+              onClick={cerrarSesion}
+              className="rounded-2xl border border-neutral-300 px-4 py-3 text-sm font-semibold text-neutral-700"
+            >
+              Cerrar sesión
+            </button>
+          </div>
         </div>
 
         <div className="rounded-3xl bg-white p-5 shadow-sm">
-          <label className="mb-2 block text-sm font-medium">Lugar</label>
-          <input
-            type="text"
-            value={lugar}
-            onChange={(e) => {
-              setLugar(e.target.value);
+          <button
+            type="button"
+            onClick={() => {
+              setMostrarFormulario(!mostrarFormulario);
               setMensaje("");
             }}
-            placeholder="Ej: La Lomita"
-            className="w-full rounded-2xl border border-neutral-300 px-4 py-3 outline-none"
-          />
-        </div>
-
-        <div className="rounded-3xl bg-white p-5 shadow-sm">
-          <label className="mb-2 block text-sm font-medium">Rival</label>
-          <input
-            type="text"
-            value={rival}
-            onChange={(e) => {
-              setRival(e.target.value);
-              setMensaje("");
-            }}
-            placeholder="Ej: Tala"
-            className="w-full rounded-2xl border border-neutral-300 px-4 py-3 outline-none"
-          />
-        </div>
-
-        <div className="rounded-3xl bg-white p-5 shadow-sm">
-          <label className="mb-2 block text-sm font-medium">Estamento</label>
-          <select
-            value={estamento}
-            onChange={(e) => {
-              setEstamento(e.target.value as Estamento);
-              setMensaje("");
-            }}
-            className="w-full rounded-2xl border border-neutral-300 px-4 py-3 outline-none"
+            className="w-full rounded-2xl bg-blue-600 px-4 py-4 text-base font-semibold text-white shadow-sm"
           >
-            <option value="Infantiles">Infantiles</option>
-            <option value="Juveniles">Juveniles</option>
-            <option value="PS Masculino">PS Masculino</option>
-            <option value="PS Femenino">PS Femenino</option>
-          </select>
+            {mostrarFormulario ? "Ocultar formulario" : "Nuevo evento"}
+          </button>
         </div>
 
-        <div className="rounded-3xl bg-white p-5 shadow-sm">
-          <label className="mb-2 block text-sm font-medium">
-            Precio del estacionamiento
-          </label>
-          <input
-            type="number"
-            value={precio}
-            onChange={(e) => {
-              setPrecio(e.target.value);
-              setMensaje("");
-            }}
-            placeholder="Ej: 3000"
-            className="w-full rounded-2xl border border-neutral-300 px-4 py-3 outline-none"
-          />
-        </div>
+        {mostrarFormulario && (
+          <>
+            <div className="rounded-3xl bg-white p-5 shadow-sm">
+              <label className="mb-2 block text-sm font-medium">Fecha</label>
+              <input
+                type="date"
+                value={fecha}
+                onChange={(e) => {
+                  setFecha(e.target.value);
+                  setMensaje("");
+                }}
+                className="w-full rounded-2xl border border-neutral-300 px-4 py-3 outline-none"
+              />
+            </div>
 
-        <button
-          type="button"
-          onClick={crearEvento}
-          className="w-full rounded-2xl bg-red-700 px-4 py-4 text-base font-semibold text-white shadow-sm"
-        >
-          Crear evento
-        </button>
+            <div className="rounded-3xl bg-white p-5 shadow-sm">
+              <label className="mb-2 block text-sm font-medium">Lugar</label>
+              <input
+                type="text"
+                value={lugar}
+                onChange={(e) => {
+                  setLugar(e.target.value);
+                  setMensaje("");
+                }}
+                placeholder="Ej: La Lomita"
+                className="w-full rounded-2xl border border-neutral-300 px-4 py-3 outline-none"
+              />
+            </div>
+
+            <div className="rounded-3xl bg-white p-5 shadow-sm">
+              <label className="mb-2 block text-sm font-medium">Rival</label>
+              <input
+                type="text"
+                value={rival}
+                onChange={(e) => {
+                  setRival(e.target.value);
+                  setMensaje("");
+                }}
+                placeholder="Ej: Tala"
+                className="w-full rounded-2xl border border-neutral-300 px-4 py-3 outline-none"
+              />
+            </div>
+
+            <div className="rounded-3xl bg-white p-5 shadow-sm">
+              <label className="mb-2 block text-sm font-medium">Estamento</label>
+              <select
+                value={estamento}
+                onChange={(e) => {
+                  setEstamento(e.target.value as Estamento);
+                  setMensaje("");
+                }}
+                className="w-full rounded-2xl border border-neutral-300 px-4 py-3 outline-none"
+              >
+                <option value="Infantiles">Infantiles</option>
+                <option value="Juveniles">Juveniles</option>
+                <option value="PS Masculino">PS Masculino</option>
+                <option value="PS Femenino">PS Femenino</option>
+              </select>
+            </div>
+
+            <div className="rounded-3xl bg-white p-5 shadow-sm">
+              <label className="mb-2 block text-sm font-medium">
+                Precio del estacionamiento
+              </label>
+              <input
+                type="number"
+                value={precio}
+                onChange={(e) => {
+                  setPrecio(e.target.value);
+                  setMensaje("");
+                }}
+                placeholder="Ej: 3000"
+                className="w-full rounded-2xl border border-neutral-300 px-4 py-3 outline-none"
+              />
+            </div>
+
+            <button
+              type="button"
+              onClick={crearEvento}
+              className="w-full rounded-2xl bg-red-700 px-4 py-4 text-base font-semibold text-white shadow-sm"
+            >
+              Crear evento
+            </button>
+          </>
+        )}
 
         {mensaje && (
           <div className="rounded-3xl border border-neutral-200 bg-white p-4 text-sm text-neutral-700 shadow-sm">
